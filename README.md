@@ -128,12 +128,37 @@ Além do código em C, o repositório tem uma animação que mostra o que aconte
 
 **Controles:** **Anterior**, **Play/Pausar**, **Próximo** e **Reiniciar**, mais um slider de velocidade (Lento a Rápido).
 
-**Diferenças em relação ao programa em C:**
-- Na animação cada thread faz **uma rodada** (6 passos), e no C cada thread faz 10 iterações.
-- Na animação os itens aparecem como `1000`, `1001`... (P1) e `2000`... (P2). No log do C o mesmo item aparece como `P1#0`, `P1#1`... A conta é produtor × 1000 + número.
+**Diferenças em relação ao `produtor_consumidor.c`:**
+- Na animação cada thread faz **uma rodada** (6 passos), e no `produtor_consumidor.c` cada thread faz 10 iterações.
+- Na animação os itens aparecem como `1000`, `1001`... (P1) e `2000`... (P2). No log do `produtor_consumidor.c` o mesmo item aparece como `P1#0`, `P1#1`... A conta é produtor × 1000 + número.
+
+Para ter em C exatamente o que a animação mostra (mesmas frases, mesmos itens e uma rodada por thread), use o `animacao.c`, descrito abaixo.
+
+## Versão da animação em C (`animacao.c`)
+
+Programa em C com threads e semáforos de verdade, que reproduz as 4 abas da animação. Usa as mesmas palavras (`ESPERA`, `SINALIZA`) e o mesmo log em frases, com o estado dos semáforos e do buffer depois de cada passo.
+
+```bash
+gcc animacao.c -o animacao -pthread
+./animacao 1     # melhor caso
+./animacao 2     # pior caso: buffer cheio
+./animacao 3     # pior caso: buffer vazio
+```
+
+Cada execução leva de 6 a 18 segundos (o melhor caso é o mais demorado, porque as threads entram uma de cada vez), porque o programa é lento de propósito para dar tempo de ler. Para o **teste do caos**, compile desligando os semáforos e rode:
+
+```bash
+gcc animacao.c -o animacao_caos -pthread -DUSAR_SEMAFOROS=0
+./animacao_caos
+```
+
+No caos aparecem linhas `ERRO` (item sobrescrito e leitura de posição vazia) e "itens perdidos" no final. Como a corrida depende da sorte do escalonador, rode mais de uma vez.
+
+Como são threads de verdade, a ordem exata dos passos pode mudar um pouco de uma execução para outra. As threads de cada cenário entram em momentos escolhidos para o comportamento ser o da aba (por exemplo, no buffer vazio os consumidores começam primeiro e dormem), mas não é um roteiro fixo como o da animação.
 
 ## Arquivos
 
-- `produtor_consumidor.c`: código-fonte em C, comentado
+- `produtor_consumidor.c`: programa principal em C, comentado (10 iterações por thread)
+- `animacao.c`: versão em C que reproduz as abas da animação
 - `animacao.html`: animação interativa (abrir no navegador)
 - `README.md`: este arquivo
