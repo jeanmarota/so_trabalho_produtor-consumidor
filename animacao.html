@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<!--
+  🚦 Animação do Produtor-Consumidor com semáforos
+  Trio 01: Jean Marota, Ferdinando e Jorge (UERN, Sistemas Operacionais)
+
+  Como usar: é só abrir esse arquivo no navegador (duplo clique). Não precisa
+  instalar nada e nem ter internet.
+
+  O que ele mostra: passo a passo, o que acontece com as 4 threads, com o buffer
+  e com os 3 semáforos (vazias, cheias e mutex). Tem 4 abas: o melhor caso, dois
+  piores casos e o teste do caos (sem semáforos, pra ver tudo dar errado).
+-->
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Produtor-Consumidor com Semáforos — Animação</title>
+<style>
+/* 🎨 Cores do site. Repara que cada coisa tem a sua cor:
+   --prod = azul (produtores) | --cons = laranja (consumidores)
+   --ok = verde (tudo certo) | --bad = vermelho (bloqueio/erro)
+   --acc = roxo (destaque) | --hl = amarelinho (linha de código da vez) */
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f6f7fb;--card:#fff;--tx:#1b1f2a;--mut:#6a7285;--bd:#dfe3ee;--prod:#2f7dd1;--cons:#d9822b;--ok:#2e9e5b;--bad:#d64545;--acc:#6d4fd6;--hl:#fff6d6}
+/* 🌙 Se o seu navegador estiver no modo escuro, a gente troca pelas cores escuras */
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12141b;--card:#1b1e28;--tx:#e8eaf2;--mut:#98a0b5;--bd:#2c3140;--prod:#5aa2ee;--cons:#f0a050;--ok:#4cc27f;--bad:#f06a6a;--acc:#9a82f0;--hl:#3a3418}}
+:root[data-theme="dark"]{--bg:#12141b;--card:#1b1e28;--tx:#e8eaf2;--mut:#98a0b5;--bd:#2c3140;--prod:#5aa2ee;--cons:#f0a050;--ok:#4cc27f;--bad:#f06a6a;--acc:#9a82f0;--hl:#3a3418}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+/* ===== Layout geral: tudo centralizado, com largura máxima ===== */
+.w{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:1.35rem;margin:0 0 2px}.sub{color:var(--mut);margin:0 0 14px;font-size:.9rem}
+/* ===== As abas lá em cima (os botões redondinhos dos cenários) ===== */
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.tab{border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:8px 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:.88rem}
+.tab.on{background:var(--acc);border-color:var(--acc);color:#fff}
+/* caixinha com a explicação do cenário que está aberto */
+.desc{background:var(--card);border:1px solid var(--bd);border-left:4px solid var(--acc);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:.92rem}
+/* a tela é dividida em 3 colunas: produtores | buffer + semáforos | consumidores.
+   No celular (tela estreita) vira uma coluna só, uma embaixo da outra */
+.grid{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:12px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:12px}
+/* ===== Cartões das threads (P1, P2, C1, C2) =====
+   faixa azul em cima = produtor, laranja = consumidor
+   anel roxo (.act) = a thread que acabou de fazer alguma coisa
+   borda vermelha (.blk) = thread dormindo, bloqueada num semáforo */
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px 12px}
+.th{transition:box-shadow .2s,border-color .2s}
+.th.P{border-top:4px solid var(--prod)}.th.C{border-top:4px solid var(--cons)}
+.th.act{box-shadow:0 0 0 2px var(--acc)}
+.th.blk{border-color:var(--bad)}
+.th h3{margin:0;font-size:.95rem;display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.st{font-size:.76rem;color:var(--mut);font-weight:500}.st.b{color:var(--bad);font-weight:700}.st.c{color:var(--acc);font-weight:700}.st.d{color:var(--ok)}
+/* a listinha de "código" dentro de cada cartão:
+   ✓ = linha que já passou | amarelo = linha da vez | vermelho = travou nessa linha */
+.code{margin:8px 0 0;padding:0;list-style:none;font:12px/1.35 ui-monospace,Menlo,Consolas,monospace}
+.code li{padding:3px 6px;border-radius:5px;color:var(--mut);overflow-wrap:anywhere}
+.code li.dn{opacity:.55}.code li.dn:before{content:"✓ "}
+.code li.cur{background:var(--hl);color:var(--tx);font-weight:700}
+.code li.cur.b{background:var(--bad);color:#fff}
+.code li.off{text-decoration:line-through}
+h4{margin:0 0 8px;font-size:.82rem;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+/* ===== Buffer: as 5 caixinhas =====
+   tracejada = vazia | sólida e colorida = tem item
+   a animação "pop" é aquele efeitinho de crescer quando um item é gravado */
+.buf{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.slot{height:54px;border:2px dashed var(--bd);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem;position:relative}
+.slot i{position:absolute;top:2px;left:5px;font-size:.62rem;color:var(--mut);font-style:normal;font-weight:400}
+.slot.f{border-style:solid;color:#fff}
+.slot.pop{animation:pop .5s}
+@keyframes pop{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
+/* as setinhas de "entrada" e "saída" que ficam embaixo das caixinhas */
+.ptr{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-size:.7rem;text-align:center;min-height:16px;font-weight:700}
+.ptr span{white-space:nowrap}
+.pe{color:var(--prod)}.ps{color:var(--cons)}
+.cnt{margin-top:8px;font-size:.88rem;display:flex;gap:12px;flex-wrap:wrap}
+.cnt b.bad{color:var(--bad)}
+/* ===== Semáforos: cada bolinha verde é uma permissão que ainda sobra ===== */
+.sem{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.sem .n{width:64px;font:600 .82rem ui-monospace,Menlo,monospace}
+.dots{display:flex;gap:4px}.dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--bd)}
+.dot.on{background:var(--ok);border-color:var(--ok)}
+.val{font-weight:700;min-width:20px}
+.q{font-size:.76rem;color:var(--bad);font-weight:700}
+/* o retângulo da seção crítica: fica amarelo quando tem alguém lá dentro */
+.cs{margin-top:6px;border:2px dashed var(--bd);border-radius:10px;padding:8px;text-align:center;font-weight:700;font-size:.9rem}
+.cs.l{border-color:var(--acc);background:var(--hl)}
+/* a caixa grande de narração: conta em português o que acabou de acontecer
+   (vermelha = alguém bloqueou, verde = final feliz) */
+.narr{margin-top:12px;background:var(--card);border:1px solid var(--bd);border-left:5px solid var(--acc);border-radius:10px;padding:12px 14px;min-height:76px;font-size:1rem}
+.narr.bad{border-left-color:var(--bad)}.narr.ok{border-left-color:var(--ok)}
+/* barrinha de progresso da animação */
+.bar{height:5px;background:var(--bd);border-radius:3px;margin-top:10px;overflow:hidden}.bar div{height:100%;background:var(--acc);transition:width .3s}
+/* botões de controle (anterior, play, próximo, reiniciar) e o slider de velocidade */
+.ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.ctl button{border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:9px 14px;border-radius:8px;cursor:pointer;font:inherit;font-size:.9rem}
+.ctl button.pr{background:var(--acc);color:#fff;border-color:var(--acc)}
+.ctl label{font-size:.82rem;color:var(--mut);display:flex;gap:6px;align-items:center;margin-left:auto}
+.cnt2{font-size:.82rem;color:var(--mut)}
+</style></head><body><div class="w">
+<!-- título da página -->
+<h1>🚦 Produtor-Consumidor com Semáforos POSIX</h1>
+<p class="sub">Buffer de 5 posições · 2 produtores · 2 consumidores · semáforos <b>vazias</b>, <b>cheias</b> e <b>mutex</b></p>
+<!-- as abas são criadas pelo JavaScript (lá na função load) -->
+<div class="tabs" id="tabs"></div>
+<div class="desc" id="desc"></div>
+<!-- as 3 colunas: produtores (esquerda), buffer + semáforos (meio) e consumidores (direita).
+     Os cartões das threads também são desenhados pelo JavaScript -->
+<div class="grid">
+ <div class="col" id="cp"></div>
+ <div class="col">
+  <div class="card"><h4>Buffer circular</h4><div class="buf" id="buf"></div><div class="ptr" id="ptr"></div><div class="cnt" id="cnt"></div></div>
+  <div class="card"><h4>Semáforos</h4><div id="sems"></div><div class="cs" id="cs"></div></div>
+ </div>
+ <div class="col" id="cc"></div>
+</div>
+<!-- a narração do que está acontecendo em cada passo -->
+<div class="narr" id="narr"></div>
+<div class="bar"><div id="prog"></div></div>
+<!-- controles: voltar, play/pausar, avançar, reiniciar, e o slider de velocidade -->
+<div class="ctl">
+ <button id="bP">◀ Anterior</button><button id="bPlay" class="pr">▶ Play</button><button id="bN">Próximo ▶</button><button id="bR">↺ Reiniciar</button>
+ <span class="cnt2" id="stepn"></span>
+ <label>Lento<input type="range" id="spd" min="500" max="3000" step="100" value="1800" style="direction:rtl">Rápido</label>
+</div>
+</div>
+<script>
+// ==================================================================
+//  Resumão de como esse código funciona 🧠
+//
+//  A animação NÃO roda threads de verdade. O que a gente faz é calcular
+//  antes uma lista de "fotografias" do sistema, uma para cada passo
+//  (buffer, semáforos, quem está dormindo...). Os botões só ficam
+//  passeando por essa lista pra frente e pra trás. Por isso dá pra voltar
+//  um passo sem bagunçar nada.
+// ==================================================================
+
+// Tamanho do buffer (5 caixinhas)
+const N=5;
+// O "roteiro" de cada thread. Cada item é um passo, na ordem em que acontece:
+//   "x"        = trabalho fora da seção crítica (produzir ou consumir)
+//   "w:nome"   = ESPERA no semáforo "nome" (sem_wait)
+//   "p:nome"   = SINALIZA o semáforo "nome" (sem_post)
+//   "wr" / "rd" = gravar no buffer (produtor) / ler do buffer (consumidor)
+// PK é o roteiro do Produtor e CK é o do Consumidor.
+const PK=['x','w:vazias','w:mutex','wr','p:mutex','p:cheias'];
+const CK=['w:cheias','w:mutex','rd','p:mutex','p:vazias','x'];
+// Os textos que aparecem nos cartões (o "código" de cada thread),
+// na mesma ordem dos roteiros lá de cima
+const PL=['produzindo item… (fora da seção crítica)','ESPERA(&vazias)','ESPERA(&mutex)','buffer[entrada % 5] = item;','SINALIZA(&mutex)','SINALIZA(&cheias)'];
+const CL=['ESPERA(&cheias)','ESPERA(&mutex)','item = buffer[saida % 5];','SINALIZA(&mutex)','SINALIZA(&vazias)','consumindo item… (fora da seção crítica)'];
+// Os nomes das 4 threads: 2 produtores e 2 consumidores
+const IDS=['P1','P2','C1','C2'];
+// cl = "clonar". Copia o estado inteiro, assim guardamos uma foto de cada passo
+// sem estragar a foto do passo anterior
+const cl=o=>JSON.parse(JSON.stringify(o));
+// mk = "montar o estado inicial": buffer vazio, vazias=5, cheias=0, mutex=1.
+// Dá pra sobrescrever coisas (ex.: começar com o buffer quase cheio).
+//   s.q  = filas das threads que estão dormindo em cada semáforo
+//   s.th = situação de cada thread (pc = em qual linha do roteiro ela está,
+//          blk = em qual semáforo ela está bloqueada)
+function mk(p){const s={sem:{vazias:N,cheias:0,mutex:1},q:{vazias:[],cheias:[],mutex:[]},buf:Array(N).fill(null),ent:0,sai:0,cnt:0,holder:null,th:{},last:null,flash:-1,bad:false,lost:0,txt:'Estado inicial: buffer vazio, vazias = 5, cheias = 0, mutex = 1. Clique em Próximo ou Play.'};
+ IDS.forEach(id=>s.th[id]={pc:0,blk:null,item:null,got:null,m:''});return Object.assign(s,p||{})}
+// run = executa UM passo da thread "id". É o coração da animação:
+// olha qual é a próxima linha do roteiro dela, faz o que precisa e escreve
+// a frase de narração em s.txt
+function run(s,id,it){
+ const t=s.th[id],P=id[0]=='P',k=(P?PK:CK)[t.pc];s.last=id;s.flash=-1;s.bad=false;
+// 1) Trabalho fora da seção crítica (produzir/consumir): não mexe em nada
+//    compartilhado, então nunca precisa esperar
+ if(k=='x'){if(P){t.item=it[id];s.txt=`${id} produz o item ${t.item} fora da seção crítica — nem toca no buffer, ninguém precisa esperar.`}else s.txt=`${id} consome o item ${t.got} fora da seção crítica.`;t.pc++;return}
+// 2) Produtor grava no buffer. O "% N" é o que faz o buffer dar a volta
+//    (depois da posição 4 volta pra 0)
+ if(k=='wr'){const i=s.ent%N;s.buf[i]=t.item;s.ent++;s.cnt++;s.flash=i;s.txt=`${id} (dentro da seção crítica) grava o item ${t.item} em buffer[${i}]. entrada=${s.ent}, contagem=${s.cnt}.`;t.pc++;return}
+// 3) Consumidor tira o item da posição "saida" e deixa ela vazia
+ if(k=='rd'){const i=s.sai%N;t.got=s.buf[i];s.buf[i]=null;s.sai++;s.cnt--;s.txt=`${id} (dentro da seção crítica) retira o item ${t.got} de buffer[${i}]. saida=${s.sai}, contagem=${s.cnt}.`;t.pc++;return}
+// 4) Se chegou aqui, o passo é um ESPERA (w) ou um SINALIZA (p) no semáforo x
+ const [a,x]=k.split(':');
+// ESPERA: se o valor é maior que 0, desce 1 e segue em frente.
+// Se for 0, a thread vai dormir na fila desse semáforo (sem gastar CPU)
+ if(a=='w'){const v=s.sem[x];
+  if(v>0){s.sem[x]=v-1;if(x=='mutex')s.holder=id;t.pc++;s.txt=`${id} → ESPERA(${x}): ${v} → ${v-1}. ${x=='mutex'?'Entrou na seção crítica (fechou a porta).':'Passou direto, sem esperar.'}`}
+  else{t.blk=x;s.q[x].push(id);s.bad=true;s.txt=`${id} → ESPERA(${x}): o valor já é 0, então ${id} é BLOQUEADA e dorme na fila de "${x}" (sem gastar CPU).`}
+  return}
+// SINALIZA: se tem thread dormindo nesse semáforo, acorda a primeira da fila
+// e passa a vez direto pra ela. Se ninguém está esperando, só sobe o valor em 1
+ if(s.q[x].length){const w=s.q[x].shift();s.th[w].blk=null;s.th[w].pc++;if(x=='mutex')s.holder=w;s.txt=`${id} → SINALIZA(${x}): ${w} estava dormindo nessa fila, então é ACORDADA e segue em frente (o valor de ${x} continua ${s.sem[x]}).`}
+ else{s.sem[x]++;if(x=='mutex')s.holder=null;s.txt=`${id} → SINALIZA(${x}): ${s.sem[x]-1} → ${s.sem[x]}.${x=='mutex'?' Saiu da seção crítica (abriu a porta).':''}`}
+ t.pc++}
+// build = monta o "filme" de um cenário: gera as fotografias uma depois da outra.
+// Os cenários normais usam "sched" (a ordem em que as threads rodam) + a função run.
+// O teste do caos usa "steps", que são passos escritos à mão.
+function build(sc){const sn=[mk(sc.init&&sc.init())];
+ if(sc.sched){sc.sched.forEach(id=>{const s=cl(sn[sn.length-1]);run(s,id,sc.items||{});sn.push(s)})}
+ else sc.steps.forEach(([id,txt,fn,bad])=>{const s=cl(sn[sn.length-1]);s.last=id;s.flash=-1;s.bad=!!bad;s.txt=txt;fn(s);sn.push(s)});
+ sn[sn.length-1].txt+=' — '+sc.end;sn[sn.length-1].fin=1;return sn}
+// ==================================================================
+//  Os 4 cenários (as abas) 🎬
+//  tab   = nome da aba           d     = texto explicativo
+//  init  = estado inicial diferente (opcional)
+//  sched = ordem em que as threads rodam, um passo por vez
+//  items = número do primeiro item de cada produtor
+//  end   = frase final que aparece no último passo
+// ==================================================================
+
+const SC=[
+// Aba 1: melhor caso. Tem folga no buffer, o mutex está livre e ninguém dorme
+{tab:'✅ Melhor caso',d:'<b>Melhor caso:</b> o buffer tem folga (nem cheio, nem vazio) e as threads chegam quando o mutex está livre. Todo <code>ESPERA</code> encontra valor &gt; 0, <b>ninguém dorme</b> e nenhum tempo é desperdiçado. Repare que P2 “produz” e pega uma vaga enquanto P1 ainda está na seção crítica — só a parte que mexe no buffer é exclusiva.',
+ sched:['P1','P1','P1','P1','P2','P2','P1','P1','P2','P2','P2','P2','C1','C1','C1','C2','C1','C1','C2','C2','C2','C2','C1','C2'],items:{P1:1000,P2:2000},
+ end:'Nenhuma thread foi bloqueada. Buffer vazio de novo e contagem = 0 (esperado: 0). ✅'},
+// Aba 2: pior caso A. Buffer cheio, então produtor e consumidor precisam esperar
+{tab:'⛔ Pior: buffer cheio',d:'<b>Pior caso A — buffer cheio + disputa:</b> o buffer começa com 4 itens e <code>vazias = 1</code>. P1 pega a última vaga, então P2 encontra <code>vazias = 0</code> e <b>dorme</b>. Ao mesmo tempo C1 chega enquanto P1 segura o mutex e também <b>dorme</b>. Tudo se resolve em cadeia: P1 acorda C1, C1 libera uma vaga e acorda P2.',
+ init:()=>({buf:[1000,1001,1002,1003,null],ent:4,sai:0,cnt:4,sem:{vazias:1,cheias:4,mutex:1}}),
+ sched:['P1','P2','P1','P2','P1','C1','C1','P1','P1','P1','C1','C1','C1','P2','P2','P2','P2','C1'],items:{P1:1004,P2:2000},
+ end:'Houve 2 bloqueios, mas zero perda de dados e zero corrida: o custo do pior caso é só esperar. ⏳'},
+// Aba 3: pior caso B. Buffer vazio, então os consumidores chegam e vão dormir
+{tab:'⛔ Pior: buffer vazio',d:'<b>Pior caso B — buffer vazio:</b> os consumidores chegam primeiro, encontram <code>cheias = 0</code> e <b>dormem</b>. Cada <code>SINALIZA(&amp;cheias)</code> de um produtor acorda exatamente um consumidor. Sem esse semáforo, o consumidor leria lixo.',
+ sched:['C1','C2','P1','P1','P1','P1','P1','P1','C1','C1','C1','C1','P2','P2','P2','P2','P2','P2','C2','C2','C2','C2','C1','C2'],items:{P1:1000,P2:2000},
+ end:'Consumidores dormiram até haver item, nunca leram posição vazia. contagem = 0 (esperado: 0). ✅'},
+// Aba 4: teste do caos. Sem semáforos, então os passos são escritos à mão
+// pra mostrar um entrelaçamento que dá errado. Cada passo é:
+// [thread, texto da narração, o que muda no estado, é um erro? (1 = sim)]
+{tab:'💥 Teste do caos',chaos:1,d:'<b>Teste do caos (<code>USAR_SEMAFOROS 0</code>):</b> <code>ESPERA</code> e <code>SINALIZA</code> viram <code>((void)0)</code>. Sem mutex, duas threads leem a mesma <code>entrada</code>, sobrescrevem itens e perdem atualizações de <code>contagem</code>. Sem <code>cheias</code>, consumidor retira de buffer vazio. Cenário ilustrativo de um entrelaçamento possível.',
+ steps:[
+ ['P1','P1 lê entrada (=0) para calcular o índice do slot.',s=>{s.th.P1.m='idx = entrada % 5 → 0'},0],
+ ['P2','Troca de contexto! P2 também lê entrada (=0). Sem mutex, nada impede.',s=>{s.th.P2.m='idx = entrada % 5 → 0 (mesmo slot!)'},1],
+ ['P1','P1 grava o item 1000 em buffer[0].',s=>{s.buf[0]=1000;s.flash=0;s.th.P1.m='buffer[0] = 1000'},0],
+ ['P2','P2 grava o item 2000 em buffer[0] e SOBRESCREVE o 1000. Item perdido!',s=>{s.buf[0]=2000;s.flash=0;s.lost++;s.th.P2.m='buffer[0] = 2000 (sobrescreveu!)'},1],
+ ['P1','P1 faz entrada++ → 1.',s=>{s.ent=1;s.th.P1.m='entrada++ → 1'},0],
+ ['P2','P2 faz entrada++ com o valor velho (0) → 1. Atualização perdida: deveria ser 2.',s=>{s.th.P2.m='entrada++ (valor velho) → 1'},1],
+ ['P1','P1 lê contagem (0) e calcula 1.',s=>{s.th.P1.m='tmp = contagem + 1 → 1'},0],
+ ['P2','P2 também lê contagem (0) e calcula 1.',s=>{s.th.P2.m='tmp = contagem + 1 → 1'},1],
+ ['P1','P1 grava contagem = 1.',s=>{s.cnt=1;s.th.P1.m='contagem = 1'},0],
+ ['P2','P2 grava contagem = 1 de novo. Deveria ser 2: outra atualização perdida.',s=>{s.th.P2.m='contagem = 1 (devia ser 2)'},1],
+ ['C1','C1 não espera “cheias”: lê buffer[0] = 2000 e saida vira 1.',s=>{s.buf[0]=null;s.sai=1;s.th.C1.m='item = buffer[0] = 2000'},0],
+ ['C1','C1 faz contagem-- → 0.',s=>{s.cnt=0;s.th.C1.m='contagem-- → 0'},0],
+ ['C2','C2 também consome, mas o buffer está VAZIO: lê buffer[1] = lixo. Sem “cheias”, nada o segura.',s=>{s.sai=2;s.th.C2.m='item = buffer[1] = lixo!'},1],
+ ['C2','C2 faz contagem-- → -1. Contagem negativa!',s=>{s.cnt=-1;s.th.C2.m='contagem-- → -1'},1]],
+ end:'Resultado: contagem = -1 (esperado 0), 1 item perdido e 1 leitura de lixo. É isso que mutex + vazias + cheias evitam. 💥'}
+];
+// ==================================================================
+//  Parte que mexe na tela 🖥️
+//  ci = cenário atual | sn = fotografias do cenário | i = passo atual
+//  timer = controle do autoplay
+// ==================================================================
+let ci=0,sn=[],i=0,timer=null;
+// atalho pra pegar um elemento da página pelo id
+const $=id=>document.getElementById(id);
+// load = troca de aba: monta o filme do cenário, volta pro passo 0 e redesenha tudo
+function load(n){ci=n;sn=build(SC[n]);i=0;stop();$('desc').innerHTML=SC[n].d;
+ $('tabs').innerHTML=SC.map((c,k)=>`<button class="tab${k==n?' on':''}" onclick="load(${k})">${c.tab}</button>`).join('');render()}
+// card = desenha o cartãozinho de uma thread: nome, status (executando,
+// dormindo, na seção crítica...) e as linhas de código com ✓ / amarelo / vermelho
+function card(s,id,chaos){const t=s.th[id],P=id[0]=='P',L=P?PL:CL;let st,cls='st';
+ if(!chaos&&t.pc>=6){st='✔ terminou a rodada';cls+=' d'}else if(t.blk){st='💤 bloqueada em '+t.blk;cls+=' b'}else if(s.holder==id){st='🔒 na seção crítica';cls+=' c'}else st=chaos?'sem trava':'executando';
+ let lines;
+ if(chaos)lines=`<li class="${t.m?'cur':''}">${t.m||'aguardando…'}</li><li class="off">ESPERA / SINALIZA desativados</li>`;
+ else lines=L.map((l,k)=>{let c=k<t.pc?'dn':(k==t.pc&&t.pc<6?'cur'+(t.blk?' b':''):'');return `<li class="${c}">${l.replace('item…',P?'item '+(t.item??'')+'…':'item '+(t.got??'')+'…')}</li>`}).join('');
+ return `<div class="card th ${P?'P':'C'}${s.last==id?' act':''}${t.blk?' blk':''}"><h3><span>${P?'🏭 Produtor':'🛒 Consumidor'} ${id[1]}</span><span class="${cls}">${st}</span></h3><ul class="code">${lines}</ul></div>`}
+// render = redesenha a tela inteira para o passo atual: cartões, buffer,
+// setinhas, semáforos, seção crítica, narração e barra de progresso
+function render(){const s=sn[i],sc=SC[ci],ch=sc.chaos;
+ $('cp').innerHTML=card(s,'P1',ch)+card(s,'P2',ch);$('cc').innerHTML=card(s,'C1',ch)+card(s,'C2',ch);
+ $('buf').innerHTML=s.buf.map((v,k)=>`<div class="slot${v!=null?' f':''}${s.flash==k?' pop':''}" style="${v!=null?'background:var('+(v<2000?'--prod':'--cons')+')':''}"><i>${k}</i>${v??''}</div>`).join('');
+ $('ptr').innerHTML=s.buf.map((_,k)=>`<span>${k==s.ent%N?'<span class="pe">▲ entrada</span> ':''}${k==s.sai%N?'<span class="ps">▲ saída</span>':''}</span>`).join('');
+// compara a "contagem" com a quantidade real de itens no buffer.
+// Se forem diferentes, o número fica vermelho: foi uma condição de corrida!
+ const real=s.buf.filter(v=>v!=null).length,bad=s.cnt!=real;
+ $('cnt').innerHTML=`<span>contagem: <b class="${bad?'bad':''}">${s.cnt}</b></span><span>itens reais no buffer: <b>${real}</b></span>${ch?`<span>itens perdidos: <b class="${s.lost?'bad':''}">${s.lost}</b></span>`:''}`;
+ const dots=v=>Array.from({length:N},(_,k)=>`<span class="dot${k<v?' on':''}"></span>`).join('');
+ const qs=x=>s.q[x].length?`<span class="q">💤 ${s.q[x].join(', ')}</span>`:'';
+ $('sems').innerHTML=ch?'<div class="q" style="font-size:.88rem">Semáforos desativados (USAR_SEMAFOROS = 0)</div>':
+  `<div class="sem"><span class="n">vazias</span><span class="dots">${dots(s.sem.vazias)}</span><span class="val">${s.sem.vazias}</span>${qs('vazias')}</div>
+   <div class="sem"><span class="n">cheias</span><span class="dots">${dots(s.sem.cheias)}</span><span class="val">${s.sem.cheias}</span>${qs('cheias')}</div>
+   <div class="sem"><span class="n">mutex</span><span class="val">${s.sem.mutex}</span><span>${s.sem.mutex?'🔓 livre':'🔒 ocupado'}</span>${qs('mutex')}</div>`;
+ const cs=$('cs');cs.className='cs'+(s.holder?' l':'');cs.innerHTML=ch?'Seção crítica sem proteção ⚠️':(s.holder?`🔒 Seção crítica: ${s.holder} está dentro`:'🔓 Seção crítica livre');
+ const n=$('narr');n.className='narr'+(s.bad?' bad':(s.fin&&!ch?' ok':''));n.textContent=s.txt;
+ $('prog').style.width=(i/(sn.length-1)*100)+'%';$('stepn').textContent=`Passo ${i}/${sn.length-1}`;
+ $('bP').disabled=i==0;$('bN').disabled=i==sn.length-1;$('bPlay').textContent=timer?'⏸ Pausar':'▶ Play'}
+// ===== Botões e autoplay =====
+function stop(){if(timer){clearTimeout(timer);timer=null}}
+// tick = avança um passo e agenda o próximo (a velocidade vem do slider)
+function tick(){if(i>=sn.length-1){stop();render();return}i++;render();timer=setTimeout(tick,+$('spd').value)}
+$('bPlay').onclick=()=>{if(timer){stop();render()}else{if(i>=sn.length-1)i=0;timer=setTimeout(tick,300);render()}};
+$('bN').onclick=()=>{stop();if(i<sn.length-1)i++;render()};
+$('bP').onclick=()=>{stop();if(i>0)i--;render()};
+$('bR').onclick=()=>{stop();i=0;render()};
+// começa pela primeira aba
+load(0);
+</script></body></html>
