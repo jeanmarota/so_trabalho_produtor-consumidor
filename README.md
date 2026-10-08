@@ -91,9 +91,11 @@ O buffer compartilhado é uma fila circular de 5 posições. A sincronização u
 | `cheias` | 0 | Conta os itens disponíveis. O consumidor espera quando o buffer está vazio |
 | `mutex` | 1 | Semáforo binário que garante uma thread por vez na seção crítica |
 
-**Produtor:** `sem_wait(vazias)` → `sem_wait(mutex)` → insere → `sem_post(mutex)` → `sem_post(cheias)`
+Na animação, `ESPERA` é o `sem_wait` e `SINALIZA` é o `sem_post`.
 
-**Consumidor:** `sem_wait(cheias)` → `sem_wait(mutex)` → remove → `sem_post(mutex)` → `sem_post(vazias)`
+**Produtor:** produz o item (fora da seção crítica) → `ESPERA(vazias)` → `ESPERA(mutex)` → `buffer[entrada % 5] = item` → `SINALIZA(mutex)` → `SINALIZA(cheias)`
+
+**Consumidor:** `ESPERA(cheias)` → `ESPERA(mutex)` → `item = buffer[saida % 5]` → `SINALIZA(mutex)` → `SINALIZA(vazias)` → consome o item (fora da seção crítica)
 
 ### Como o código evita os problemas clássicos
 
@@ -108,17 +110,27 @@ Há `usleep()` (via a função `pausa`) com valores aleatórios **fora** da seç
 
 ## Animação (para entender a lógica)
 
-Além do código em C, o repositório tem uma animação que mostra o que acontece, passo a passo, com as threads, o buffer e os semáforos.
+Além do código em C, o repositório tem uma animação que mostra o que acontece, passo a passo, com as 4 threads (P1, P2, C1 e C2), o buffer de 5 posições e os 3 semáforos.
 
 **Como abrir:** dê duplo clique em `animacao.html`, ou abra o arquivo pelo navegador. Não precisa instalar nada nem ter internet.
 
-**O que tem nela:**
-- **Melhor caso:** o buffer tem folga e ninguém precisa dormir.
-- **Pior caso, buffer cheio:** produtor e consumidor precisam esperar uma vaga.
-- **Pior caso, buffer vazio:** os consumidores chegam primeiro e dormem até aparecer um item.
-- **Teste do caos:** sem semáforos, mostrando passo a passo a condição de corrida (item sobrescrito, contagem errada, leitura de posição vazia).
+**O que aparece na tela:**
+- um cartão para cada thread, com as linhas do "código" dela. ✓ é linha que já passou, amarelo é a linha da vez e vermelho é onde a thread travou;
+- o buffer circular, com as setas de `entrada` e `saída`, a `contagem` e a quantidade real de itens (se forem diferentes, o número fica vermelho);
+- os semáforos `vazias`, `cheias` e `mutex` com seus valores, e quem está dormindo na fila de cada um;
+- a seção crítica (quem está lá dentro) e uma frase em português explicando cada passo.
 
-Os botões **Anterior**, **Play/Pausar**, **Próximo** e **Reiniciar** controlam a animação, e o slider ajusta a velocidade. Cada passo vem com uma explicação em português.
+**As 4 abas:**
+- **Melhor caso:** o buffer tem folga e ninguém é bloqueado. O P2 produz enquanto o P1 ainda está na seção crítica, porque só a parte que mexe no buffer é exclusiva.
+- **Pior caso, buffer cheio:** o buffer começa com 4 itens e `vazias = 1`. O P2 dorme em `vazias` e o C1 dorme esperando o `mutex`. Há 2 bloqueios e nenhum dado se perde.
+- **Pior caso, buffer vazio:** C1 e C2 chegam primeiro e dormem em `cheias`. Cada `SINALIZA(cheias)` de um produtor acorda um consumidor.
+- **Teste do caos:** equivale a `USAR_SEMAFOROS 0`. Sem semáforos, o P2 sobrescreve o item do P1 e a `contagem` termina em -1 (esperado: 0), com 1 item perdido e 1 leitura de lixo.
+
+**Controles:** **Anterior**, **Play/Pausar**, **Próximo** e **Reiniciar**, mais um slider de velocidade (Lento a Rápido).
+
+**Diferenças em relação ao programa em C:**
+- Na animação cada thread faz **uma rodada** (6 passos), e no C cada thread faz 10 iterações.
+- Na animação os itens aparecem como `1000`, `1001`... (P1) e `2000`... (P2). No log do C o mesmo item aparece como `P1#0`, `P1#1`... A conta é produtor × 1000 + número.
 
 ## Arquivos
 
